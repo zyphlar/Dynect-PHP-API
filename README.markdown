@@ -12,6 +12,14 @@ Installation
 Config
 ------
 
+Ideally, there would be a config file in system/application/config but I haven't gotten it to work properly yet.
+
+In the system/application/libraries/Dynect_API.php file, edit these lines as necessary based on info provided by Dynect:
+
+    var $user_name = '';
+    var $customer_name = '';
+    var $password = '';
+
 
 Usage
 ------

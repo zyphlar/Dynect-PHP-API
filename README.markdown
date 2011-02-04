@@ -5,8 +5,8 @@ Connecting to the Dynect API with CodeIgniter (PHP)
 This is an open-source work in progress, and your contribution is appreciated!
 
 TODO: 
-  The Dynect API doesn't appear to support everything needed, but this is a decently-complete implementation and should get anyone trying to interface with Dynect via PHP a good head start.
-  The code is very hackish -- there's a lot of copy-paste and the CodeIgniter section is just a repurposed welcome.php -- but the good news is that sections are quite usable on their own. There's no config files, dependencies, or a significant MVC to be concerned about, and so should be decent as PHP sample code of the Dynect API implementation.
+    The Dynect API doesn't appear to support everything needed, but this is a decently-complete implementation and should get anyone trying to interface with Dynect via PHP a good head start.
+    The code is very hackish -- there's a lot of copy-paste and the CodeIgniter section is just a repurposed welcome.php -- but the good news is that sections are quite usable on their own. There's no config files, dependencies, or a significant MVC to be concerned about, and so should be decent as PHP sample code of the Dynect API implementation.
 
 Installation
 ------------

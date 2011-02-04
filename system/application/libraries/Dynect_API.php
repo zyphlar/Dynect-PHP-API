@@ -17,9 +17,9 @@ class Dynect_API {
     var $base_url = 'https://api2.dynect.net/wsdl/2.0.0/Dynect.wsdl'; // The Base Dynect API2 URL
     var $client; // The SOAP client
     var $token; // Dynect login token
-    var $user_name = 'jstrebel';
-    var $customer_name = 'demo-pagely';
-    var $password = '1234test';
+    var $user_name = 'USER';
+    var $customer_name = 'CUSTOMER';
+    var $password = 'PASSWORD';
     
     
     /**

@@ -1,428 +1,366 @@
-<?php if ( ! defined('BASEPATH')) exit('No direct script access allowed');
+<?php
 
 /**
- * Dynect API SOAP Library
- *
- * Interfaces with the Dynect DNS service to query and modfiy DNS records.
- *
- * @category	Libraries
- * @author      Will Bradley, based on Dynect API examples.
- * @link        http://www.zyphon.com
+* Dynect API SOAP Library
+*
+* Interfaces with the Dynect DNS service to query and modfiy DNS records.
+*
+* @category Libraries
+* @author Will Bradley, based on Dynect API examples.
+* @link http://www.zyphon.com
+* @link https://github.com/zyphlar/Dynect-PHP-API
 */
 
 class Dynect_API {
 
-    //private
-    var $CI;
-    var $base_url = 'https://api2.dynect.net/wsdl/2.0.0/Dynect.wsdl'; // The Base Dynect API2 URL
-    var $client; // The SOAP client
-    var $token; // Dynect login token
-    var $user_name = 'USER';
-    var $customer_name = 'CUSTOMER';
-    var $password = 'PASSWORD';
-    
-    
-    /**
-     * Constructor
-     *
-     * @access	public
-     */	
-    function Dynect_API() {
-        $this->CI =& get_instance();
+  protected $base_url = 'https://api2.dynect.net/wsdl/current/Dynect.wsdl';
+  protected $client; // The SOAP client
+  protected $token = null; // Dynect login token
+  protected $messages = array();
+  protected $error_function = null;
 
-        $this->client = new SoapClient($this->base_url, array('cache_wsdl' => 0)); //Connect to the WSDL
-    	
-        log_message('debug', 'Dynect_API Class Initialized');
+  protected $allowed_records = array('A', 'AAAA', 'CNAME', 'DNSKEY', 'DS', 'KEY', 'LOC', 'MX', 'NS', 'PTR', 'RP', 'SOA', 'SRV', 'TXT');
+
+  public function __construct($url = null) {
+
+    if($url) {
+      $this->base_url = $url;
     }
 
-	// --------------------------------------------------------------------
+    $this->client = new SoapClient($this->base_url, array('cache_wsdl' => 1)); //Connect to the WSDL
+  }
 
+  public function setErrorFunction($error_function) {
+    $this->error_function = $error_function;
+  }
 
-    function login() {
+  protected function error($message) {
+    $this->messages[] = $message;
 
-      /* ##########################
+    // If we've been given a custom error function, use it.
+    // Eg for Drupal, you can pass in drupal_set_message to setErrorFunction()
+    if($this->error_function) {
+      $error_function = $this->error_function;
+      $error_function($message);
+    }
+  }
 
-      Logging In
-      ------------
-      To log in to the dynect API you must call SessionLogin with customer name, username and password
+  public function getErrors() {
+    return $this->messages;
+  }
 
-      Some Returned Values
-      status - success or failure
-      data->token - to be used with all other commands
+  public function login($customer_name, $user_name, $password) {
 
-      ** Complete Documentations can be found at
-      https://manage.dynect.net/help/docs/api2/soap/
+    $parameters = array(
+      'parameters' => array(
+        'user_name'=> $user_name,
+        'customer_name' => $customer_name,
+        'password' => $password,
+      ),
+    );
 
-      ########################## */
+    $result = $this->soapCall('SessionLogin', $parameters);
 
-      if(!isset($this->user_name) || !isset($this->customer_name) || !isset($this->password)) {
-                show_error('You must set your username, customer name, and password in application/config/dynect_api.php in order to login.');
-      }
-      else {
+    if($result && ($result->status == 'success')){
+      $this->token = $result->data->token;
+      return true;
+    }
+    else {
+      // This case seems to be handled adequately by catching the soapfault above.
+      // Dynect's servers return HTTP 500 on failed login -> soapfault.
+    }
+  }
 
-        $parameters = array(
-          'parameters' => array(
-            'user_name'=> $this->user_name,
-            'customer_name' => $this->customer_name,
-            'password' => $this->password
-          )
-        );
+  function get_all_records($zone, $fqdn) {
 
-        $result = $this->client->__soapCall('SessionLogin',$parameters);
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+        'zone' => $zone,
+        'fqdn' => $fqdn,
+      )
+    );
 
-        if(is_soap_fault($result)){
-          trigger_error("SOAP Fault: (faultcode: {$result->faultcode}, faultstring: {$result->faultstring})", E_USER_ERROR);
-          die();
-        }
+    $result = $this->soapCall('GetANYRecords', $parameters);
 
-        if($result->status == 'success'){
-          $this->token = $result->data->token;
-          return true;
-        } else {
-          log_message('error', 'Dynect_API could not log in. Result status: '.$result->status); 
-          die();
-        }
-
-      } // end if isset user_name
-    } // end login
- 
-    function get_all_records($zone, $fqdn) {
-
-      /* ##########################
-
-      Getting All Records on a zone
-      ------------
-      To get a list of all records send a GetANYRecords command with the token, zone, and fqdn as paramters
-
-      Some Returned Values
-      status - success or failure
-      data - object containing a list record type containers each with the rdata, fqdn, record_type, ttl and zone
-
-      ** Complete Documentations can be found at
-      https://manage.dynect.net/help/docs/api2/soap/
-
-      ########################## */
-
-      $parameters = array(
-        'parameters' => array(
-          'token'=> $this->token, 
-          'zone' => $zone,
-          'fqdn' => $fqdn
-        )
-      );
-
-      echo '<b>Retrieving all Records</b><br/>';
-      echo '--------------------------<br/>';
-      $result = $this->client->__soapCall('GetANYRecords',$parameters);
-
-      if(is_soap_fault($result)){
-        trigger_error("SOAP Fault: (faultcode: {$result->faultcode}, faultstring: {$result->faultstring})", E_USER_ERROR);
-        die();
-      }
-
-      if($result->status == 'success'){
-        return $result->data;
-      } else {
-        die('Unable to Get records');
-      }
-
-    } // end get_record
- 
+    if($result && ($result->status == 'success')){
+      return $result->data;
+    }
+    else {
+      return false;
+    }
+  }
 
     /**
-     * Create a Zone
-     *
-     * @access  public
-     * @param Name of the zone
-     * @param Administrative contact for this zone
-     * @param Default TTL (in seconds) for records in the zone
-     * @return  void
-     */	
-    function create_zone($zone, $rname, $ttl = 3600) {
+* Create a Zone
+*
+* @access public
+* @param Name of the zone
+* @param Administrative contact for this zone
+* @param Default TTL (in seconds) for records in the zone
+* @return void
+*/
+  public function create_zone($zone, $rname, $ttl = 3600) {
 
-      $parameters = array(
-        'parameters' => array(
-          'token'=> $this->token,
-	        'zone' => $zone,
-	        'rname' => $rname,
-	        'ttl' => $ttl
-        )
-      );
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+        'zone' => $zone,
+        'rname' => $rname,
+        'ttl' => $ttl,
+      ),
+    );
 
-      try{
-      $result = $this->client->__soapCall('CreateZone',$parameters);
+    $result = $this->soapCall('CreateZone', $parameters);
+
+    if($result && ($result->status == 'success')) {
+      return $result->data;
+    }
+    else {
+      return false;
+    }
+  }
+
+  public function get_node_list($zone) {
+
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+        'zone' => $zone,
+      ),
+    );
+
+    $result = $this->soapCall('GetNodeList', $parameters);
+
+    if($result && ($result->status == 'success')) {
+      return $result->data;
+    }
+    else {
+      return false;
+    }
+  }
+
+  public function delete_zone($zone) {
+
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+        'zone' => $zone,
+      ),
+    );
+
+    $result = $this->soapCall('DeleteOneZone', $parameters);
+    return ($result && ($result->status == 'success'));
+  }
+
+/**
+ * Publish a Zone
+ *
+ * @access public
+ * @param Name of the zone
+ * @return boolean (true = success)
+*/
+  public function publish_zone($zone) {
+
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+        'zone' => $zone,
+      )
+    );
+
+    $result = $this->soapCall('PublishZone', $parameters);
+    return ($result && ($result->status == 'success'));
+  }
+
+
+/**
+  * Delete Records - Deletes all records at fqdn of type
+  *
+  * @access public
+  * @param Type of record to delete (A, AAAA, CNAME, DNSKEY, DS, KEY, LOC, MX, NS, PTR, RP, SOA, SRV, TXT)
+  * @param Name of zone to delete records from
+  * @param Name of node to delete records from
+  * @return bool (true=success)
+*/
+  public function delete_records($type, $zone, $fqdn) {
+
+    if(!in_array($type, $this->allowed_records)) {
+      $this->error('Supplied record type ' . $type . ' is not in the allowed list.');
+      return false;
+    }
+
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+        'fqdn' => $fqdn,
+        'zone' => $zone,
+      ),
+    );
+
+    $result = $this->soapCall('Delete'.$type.'Records', $parameters);
+    return ($result && ($result->status == 'success'));
+  }
+
+
+/**
+ * Create Record
+ *
+ * @access public
+ * @param Type of record to create (A, AAAA, CNAME, DNSKEY, DS, KEY, LOC, MX, NS, PTR, RP, SOA, SRV, TXT)
+ * @param Name of zone to add the record to
+ * @param Name of node to add the record to
+ * @param RData defining the record to add
+ *
+ * @return array data
+      string fqdn Fully qualified domain name of a node in the zone
+      hash rdata RData defining the record
+      (response data)
+      string record_type The RRType of the record
+      string ttl TTL for the record.
+      string zone Name of the zone
+ */
+
+  public function create_record($type, $zone, $fqdn, $rdata) {
+
+    if(!in_array($type, $this->allowed_records)) {
+      $this->error('Supplied record type ' . $type . ' is not in the allowed list.');
+      return false;
+    }
+
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+        'fqdn' => $fqdn,
+        'zone' => $zone,
+        'rdata' => $rdata,
+      ),
+    );
+
+    $result = $this->soapCall('Create'.$type.'Record', $parameters);
+
+    if($result && ($result->status == 'success')){
+      return $result->data;
+    }
+    else {
+      return false;
+    }
+  }
+
+/**
+  * Get Records
+  *
+  * @access public
+  * @param Type of record to get (A, AAAA, CNAME, DNSKEY, DS, KEY, LOC, MX, NS, PTR, RP, SOA, SRV, TXT)
+  * @param Name of zone to get the record of
+  * @param Name of node to get the record of
+  * @return array data
+string fqdn Fully qualified domain name of a node in the zone
+hash rdata RData defining the record
+(response data)
+string record_type The RRType of the record
+string ttl TTL for the record.
+string zone Name of the zone
+  */
+
+  public function get_records($type, $zone, $fqdn) {
+
+    if(!in_array($type, $this->allowed_records)) {
+      $this->error('Supplied record type ' . $type . ' is not in the allowed list.');
+      return false;
+    }
+
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+        'fqdn' => $fqdn,
+        'zone' => $zone,
+      )
+    );
+
+    $result = $this->soapCall('Get'.$type.'Records', $parameters);
+
+    if($result && ($result->status == 'success')) {
+      return $this->rtn($result->data);
+    }
+    else {
+      return false;
+    }
+  }
+
+ /**
+  * Get all Zones
+  *
+  * @access public
+  * @return zone data
+  */
+
+  public function get_zones() {
+
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+      ),
+    );
+
+    $result = $this->soapCall('GetZones', $parameters);
+
+    if($result && ($result->status == 'success')) {
+      // Normalise records to an array of objects.
+      return $this->rtn($result->data);
+    }
+    else {
+      return false;
+    }
+  }
+
+  public function logout() {
+
+    $parameters = array(
+      'parameters' => array(
+        'token'=> $this->token,
+      ),
+    );
+
+    $result = $this->soapCall('SessionLogout', $parameters);
+    return ($result && ($result->status == 'success'));
+  }
+
+  /**
+   * A wrapper around $this->client->__soapCall that handles exceptions and logs
+   * them as messages.
+   * @param string $method
+   * @param array $parameters
+   */
+
+  protected function soapCall($method, $parameters) {
+    try{
+      $result = $this->client->__soapCall($method, $parameters);
+    }
+    catch (SoapFault $ex) {
+      // Log all the messages:
+      foreach($ex->detail->ErrorResponse->enc_value->msgs as $message) {
+        $this->error($message->info);
       }
-      catch (SoapFault $ex) {
-          trigger_error("SOAP Fault: ( ".var_export($ex->detail,true)." )", E_USER_ERROR);
-          die();
-      }
+      return false;
+    }
+    return $result;
+  }
 
-      if($result->status == 'success'){
-        return $result->data;
-      } else {
-        die('Unable to create zone');
-      }
+  /**
+   * DynECT's API has a habit of returning a single object for a single result,
+   * or an array of objects for multiple results. This is kind of annoying as
+   * we can't safely interate over the result. This method normalises the result
+   * to an array.
+   */
 
-    } // end create_zone
- 
-    /**
-     * Delete a Zone
-     *
-     * @access  public
-     * @param Name of the zone
-     * @return  boolean (true = success)
-     */	
-    function delete_zone($zone) {
+  protected function rtn($return) {
+    if(is_array($return)) {
+      return $return;
+    }
+    else {
+      return array($return);
+    }
+  }
+}
 
-      $parameters = array(
-        'parameters' => array(
-          'token'=> $this->token,
-	        'zone' => $zone
-        )
-      );
-
-      try{
-      $result = $this->client->__soapCall('DeleteOneZone',$parameters);
-      }
-      catch (SoapFault $ex) {
-          trigger_error("SOAP Fault: ( ".var_export($ex->detail,true)." )", E_USER_ERROR);
-          die();
-      }
-
-      if($result->status == 'success'){
-        return true;
-      } else {
-        die('Unable to delete zone');
-      }
-
-    } // end delete_zone
- 
-
-    /**
-     * Publish a Zone
-     *
-     * @access  public
-     * @param Name of the zone
-     * @return  boolean (true = success)
-     */	
-    function publish_zone($zone) {
-
-      $parameters = array(
-        'parameters' => array(
-          'token'=> $this->token,
-	        'zone' => $zone
-        )
-      );
-
-      try{
-      $result = $this->client->__soapCall('PublishZone',$parameters);
-      }
-      catch (SoapFault $ex) {
-          trigger_error("SOAP Fault: ( ".var_export($ex->detail,true)." )", E_USER_ERROR);
-          die();
-      }
-
-      if($result->status == 'success'){
-        return true;
-      } else {
-        die('Unable to publish zone');
-      }
-
-    } // end publish_zone
-
-
-    /**
-     * Delete Records - Deletes all records at fqdn of type
-     *
-     * @access  public
-     * @param Type of record to delete (A, AAAA, CNAME, DNSKEY, DS, KEY, LOC, MX, NS, PTR, RP, SOA, SRV, TXT)
-     * @param Name of zone to delete records from
-     * @param Name of node to delete records from
-     * @return bool (true=success)
-     */	
-    function delete_records($type, $zone, $fqdn) {
-      if(in_array($type, array('A', 'AAAA', 'CNAME', 'DNSKEY', 'DS', 'KEY', 'LOC', 'MX', 'NS', 'PTR', 'RP', 'SOA', 'SRV', 'TXT'))) {
-
-        $parameters = array(
-          'parameters' => array(
-            'token'=> $this->token,
-            'fqdn' => $fqdn,
-	          'zone' => $zone
-          )
-        );
-
-        try{
-        $result = $this->client->__soapCall('Delete'.$type.'Records',$parameters);
-        }
-        catch (SoapFault $ex) {
-            trigger_error("SOAP Fault: ( ".var_export($ex->detail,true)." )", E_USER_ERROR);
-            die();
-        }
-
-        if($result->status == 'success'){
-          return true;
-        } else {
-          die('Unable to create '.$type.' record.');
-        }
-
-      }
-    } // end delete_records
-
-
-    /**
-     * Create Record
-     *
-     * @access  public
-     * @param Type of record to create (A, AAAA, CNAME, DNSKEY, DS, KEY, LOC, MX, NS, PTR, RP, SOA, SRV, TXT)
-     * @param Name of zone to add the record to
-     * @param Name of node to add the record to
-     * @param RData defining the record to add
-     * @return array data
-        string fqdn Fully qualified domain name of a node in the zone
-        hash rdata RData defining the record
-         (response data)
-        string record_type The RRType of the record
-        string ttl TTL for the record.
-        string zone Name of the zone
-     */	
-    function create_record($type, $zone, $fqdn, $rdata) {
-      if(in_array($type, array('A', 'AAAA', 'CNAME', 'DNSKEY', 'DS', 'KEY', 'LOC', 'MX', 'NS', 'PTR', 'RP', 'SOA', 'SRV', 'TXT'))) {
-
-        $parameters = array(
-          'parameters' => array(
-            'token'=> $this->token,
-            'fqdn' => $fqdn,
-	          'zone' => $zone,
-            'rdata' => $rdata
-          )
-        );
-
-        try{
-        $result = $this->client->__soapCall('Create'.$type.'Record',$parameters);
-        }
-        catch (SoapFault $ex) {
-            trigger_error("SOAP Fault: ( ".var_export($ex->detail,true)." )", E_USER_ERROR);
-            die();
-        }
-
-        if($result->status == 'success'){
-          return $result->data;
-        } else {
-          die('Unable to create '.$type.' record.');
-        }
-
-      }
-    } // end create_record
-
-
-    /**
-     * Get Records
-     *
-     * @access  public
-     * @param Type of record to get (A, AAAA, CNAME, DNSKEY, DS, KEY, LOC, MX, NS, PTR, RP, SOA, SRV, TXT)
-     * @param Name of zone to get the record of
-     * @param Name of node to get the record of
-     * @return array data
-        string fqdn Fully qualified domain name of a node in the zone
-        hash rdata RData defining the record
-         (response data)
-        string record_type The RRType of the record
-        string ttl TTL for the record.
-        string zone Name of the zone
-     */	
-    function get_records($type, $zone, $fqdn) {
-      if(in_array($type, array('A', 'AAAA', 'CNAME', 'DNSKEY', 'DS', 'KEY', 'LOC', 'MX', 'NS', 'PTR', 'RP', 'SOA', 'SRV', 'TXT'))) {
-
-        $parameters = array(
-          'parameters' => array(
-            'token'=> $this->token,
-            'fqdn' => $fqdn,
-	          'zone' => $zone
-          )
-        );
-
-        try{
-        $result = $this->client->__soapCall('Get'.$type.'Records',$parameters);
-        }
-        catch (SoapFault $ex) {
-            trigger_error("SOAP Fault: ( ".var_export($ex->faultstring,true)." )", E_USER_ERROR);
-            die();
-        }
-
-        if($result->status == 'success'){
-          return $result->data;
-        } else {
-          die('Unable to get '.$type.' records.');
-        }
-
-      }
-    } // end get_records
- 
-
-    /**
-     * Get all Zones
-     *
-     * @access  public
-     * @return  zone data
-     */	
-    function get_zones() {
-
-      $parameters = array(
-        'parameters' => array(
-          'token'=> $this->token
-        )
-      );
-
-      $result = $this->client->__soapCall('GetZones',$parameters);
-
-      if(is_soap_fault($result)){
-        trigger_error("SOAP Fault: (faultcode: {$result->faultcode}, faultstring: {$result->faultstring})", E_USER_ERROR);
-        die();
-      }
-
-      if($result->status == 'success'){
-        return $result->data;
-      } else {
-        die('Unable to get zones');
-      }
-
-    } // end get_zones
- 
- 
-    function logout() {
-      /* ##########################
-
-      Logging Out
-      ------------
-      To log in to the dynect API you must call SessionLogout with the token received at login
-
-      Some Returned Values
-      status - success or failure
-
-      ** Complete Documentations can be found at
-      https://manage.dynect.net/help/docs/api2/soap/
-
-      ########################## */
-
-      $parameters = array(
-        'parameters' => array(
-          'token'=> $this->token
-        )
-      );
-
-      $result = $this->client->__soapCall('SessionLogout',$parameters);
-
-      if(is_soap_fault($result)){
-        trigger_error("SOAP Fault: (faultcode: {$result->faultcode}, faultstring: {$result->faultstring})", E_USER_ERROR);
-        die();
-      }
-
-      $message = $result->msgs;
-
-      if($result->status != 'success'){
-        log_message('error','Dynect_API unable to log out.');
-      }
-    } // end logout
-
-
-} // end class
